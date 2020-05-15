@@ -255,12 +255,15 @@ module Make (TaintSpecification : TaintSpec.S) = struct
             | None ->
                 ()
             | Some access_path ->
+                ()
+                (*
                 let base, _ = AccessPath.Abs.extract access_path in
                 F.fprintf fmt " with tainted data %a" AccessPath.Abs.pp
                   ( if Var.is_footprint (fst base) then
                     (* TODO: resolve footprint identifier to formal name *)
                     access_path
                   else access_path )
+                *)
           in
           List.map
             ~f:(fun (access_path_opt, path_source) ->
@@ -278,8 +281,9 @@ module Make (TaintSpecification : TaintSpec.S) = struct
             ~f:(fun sink ->
               let call_site = Sink.call_site sink in
               let indexes = Sink.indexes sink in
-              let indexes_str =
-                match IntSet.cardinal indexes with
+              let caller_pname = Summary.get_proc_name proc_data.ProcData.summary in
+              let indexes_str = Format.asprintf ":::callLocation={%a}" Procname.pp caller_pname
+                (*match IntSet.cardinal indexes with
                 | 0 ->
                     ""
                 | 1 ->
@@ -287,7 +291,7 @@ module Make (TaintSpecification : TaintSpec.S) = struct
                 | _ ->
                     Format.asprintf " with tainted indexes %a"
                       (PrettyPrintable.pp_collection ~pp_item:Int.pp)
-                      (IntSet.elements indexes)
+                      (IntSet.elements indexes) *)
               in
               let desc =
                 Format.asprintf "Call to %a%s" Procname.pp (CallSite.pname call_site) indexes_str
@@ -510,6 +514,7 @@ module Make (TaintSpecification : TaintSpec.S) = struct
           ~f:(fun acc exp -> add_sources_sinks_for_exp proc_data exp callee_loc acc)
           actuals ~init:astate
       in
+
       let handle_model callee_pname access_tree model =
         let is_variadic =
           match callee_pname with
@@ -518,6 +523,7 @@ module Make (TaintSpecification : TaintSpec.S) = struct
           | _ ->
               false
         in
+
         let should_taint_typ typ = is_variadic || TaintSpecification.is_taintable_type typ in
         let exp_join_traces trace_acc exp =
           match hil_exp_get_node ~abstracted:true exp access_tree proc_data with
@@ -552,6 +558,10 @@ module Make (TaintSpecification : TaintSpec.S) = struct
                 TraceDomain.update_sinks trace' TraceDomain.Sinks.empty
               else trace'
             in
+            let callee_site = CallSite.make callee_pname callee_loc in
+            let caller_pname = Summary.get_proc_name proc_data.ProcData.summary in
+            Logging.d_printfln "TAINTED_CALL1: (callee=\"%a\", caller=\"%a\")" Procname.pp callee_pname Procname.pp caller_pname;
+            report_trace trace_with_propagation callee_site proc_data ;
             TaintDomain.add_trace access_path pruned_trace access_tree
         in
         let handle_model_ astate_acc propagation =
@@ -673,6 +683,8 @@ module Make (TaintSpecification : TaintSpec.S) = struct
               let ret_ap = AccessPath.Abs.Exact (ret_base, []) in
               let ret_trace = access_path_get_trace ret_ap astate_with_summary proc_data in
               let ret_trace' = TraceDomain.add_sanitizer sanitizer ret_trace in
+              let caller_pname = Summary.get_proc_name proc_data.ProcData.summary in
+              Logging.d_printfln "TAINTED_CALL2: (callee=\"%a\", caller=\"%a\")" Procname.pp callee_pname Procname.pp caller_pname;
               TaintDomain.add_trace ret_ap ret_trace' astate_with_summary
           | None ->
               astate_with_summary )
@@ -852,6 +864,7 @@ module Make (TaintSpecification : TaintSpec.S) = struct
               let base_ap =
                 AccessPath.Abs.Abstracted (AccessPath.of_pvar (Pvar.mk name pname) typ)
               in
+              (*Logging.d_printfln "TAINTED3: %a - %a" Procname.pp pname TraceDomain.pp (TraceDomain.of_source source);*)
               TaintDomain.add_trace base_ap (TraceDomain.of_source source) acc
           | None ->
               acc )
